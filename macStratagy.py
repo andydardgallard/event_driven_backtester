@@ -1,28 +1,30 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
 
+from data import CustomCSVDataHandler, CustomCSVDataExecutor
 from queue import Queue
+from handler import args_parser
+import time
 from stratagy import Stratagy
-from event import SignalEvent, Event
+from event import Event, SignalEvent
+import datetime as dt
 from backtest import Backtest
-from data import HistoricCSVDataHandler
 from execution import SimulatedExecutionHandler
 from portfolio import Portfolio
-import datetime as dt
-import numpy as np
-import os, time
 from itertools import product
+import numpy as np
 from concurrent.futures import ProcessPoolExecutor
 
-class MovingAvarageCrossStratagy(Stratagy):
-    def __init__(self, bars: HistoricCSVDataHandler, events: Queue, short_window=None, long_window=None) -> None:
+class MovingAverageCrossStratagy(Stratagy):
+    def __init__(self, bars: CustomCSVDataExecutor, events: Queue, short_window=None, long_window=None) -> None:
+        super().__init__()
         self.__bars = bars
         self.__symbol_list = self.__bars.get_symbol_list
         self.__events = events
         self.__short_window = short_window
         self.__long_window = long_window
-        self.__bought = self._calculate_initial_bought()
-
+        self.__bought = self._calculate_initial_bought()       
+    
     @property
     def get_short_window(self) -> int:
         return self.__short_window
@@ -75,37 +77,67 @@ class MovingAvarageCrossStratagy(Stratagy):
                         signal_direction = "EXIT"
                         signal = SignalEvent(1, symbol, dt_, signal_direction, 1.0)
                         self.__events.put(signal)
-                        self.get_bought[symbol] = "OUT"
-          
-def main(*params_list):
-    csv_dir = os.getcwd()
-    symbol_list = ["Si-12.20.txt", "Si-3.20.txt", "Si-9.20.txt", "Si-6.20.txt"]
+                        self.get_bought[symbol] = "OUT"    
+
+def optimization(*params_list):
     initial_capital = 1_000_000.0
     heartbeat = 0.0
     start_date = dt.datetime(2010, 1, 1, 0, 0, 0)
-
+    strat_params_list = (params_list[0][0], params_list[0][1])
+    data_iter = params_list[0][2]
+    symbol_list = list(params_list[0][2].keys())
     backtest = Backtest(
-        csv_dir,
+        data_iter,
         symbol_list,
         initial_capital,
         heartbeat,
         start_date,
-        HistoricCSVDataHandler,
+        CustomCSVDataExecutor,
         SimulatedExecutionHandler,
         Portfolio,
-        MovingAvarageCrossStratagy,
-        strat_params_list= params_list
+        MovingAverageCrossStratagy,
+        strat_params_list
     )
-    backtest.simulate_trading_opt(params_list)
+    backtest.simulate_trading_opt()
 
 if __name__ == "__main__":
     start_time = time.time()
+    #create datafeed
+    args = args_parser()
+    data_parser_params = {
+        "separator": ',',               # Разделитель рядов данных
+        "dtformat": "%Y%m%d",           # Формат даты
+        "tmformat": "%H%M%S",           # Формат времени
+        "headers": 0,                   # Содержат ли наши данные заголовок
+        "date": 0,                      # Первый столбец данных = Date
+        "time": 1,                      # Второй столбец данных = Time
+        "open": 2,                      # Третий столбец данных = Open
+        "high": 3,                      # Четветрый столбец данных = High
+        "low": 4,                       # Пятый столбец данных = Low
+        "close": 5,                     # Шестой столбец данных = Close
+        "vol": 6,                       # Седьмой столбец данных
+        "oi": -1,                       # Данных по открытому интересу нет в файле
+        "timeframe": "min",
+        "timeframebars": 1
+    }
+    symbol_list = ["Si-12.20.txt", "Si-3.20.txt", "Si-9.20.txt", "Si-6.20.txt"]
+    data = CustomCSVDataHandler(
+        args.folder, 
+        data_parser_params, 
+        args.timeframe, 
+        args.compression,
+        symbol_list)
+    data_iter = data()
+
     short_sma_window = [100, 500, 1_000]
     long_sma_window = [5_000, 7_500, 10_000]
-    strat_params_list = list(product(short_sma_window, long_sma_window))
-
+    strat_params = list(product(short_sma_window, long_sma_window))
+    strat_params_list = []
+    for item in strat_params:
+        strat_params_list.append((item[0], item[1], data_iter))
+    
     with ProcessPoolExecutor(max_workers=7) as executor:
-        results = (executor.map(main, strat_params_list))
+        results = (executor.map(optimization, strat_params_list))
 
     end_time = time.time()
     print(f"Elapsed_time= {end_time - start_time}")

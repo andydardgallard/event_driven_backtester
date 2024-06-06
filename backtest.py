@@ -3,25 +3,25 @@
 
 import pprint, time, portfolio, stratagy
 import queue
-from data import HistoricCSVDataHandler
+from data import CustomCSVDataExecutor
 from execution import SimulatedExecutionHandler
 from pprint import pprint
 
 class Backtest(object):
     def __init__(
         self,
-        csv_dir: str,
+        data_iter,
         symbol_list: list,
         initial_capital: float,
         heartbeat,
         start_date,
-        data_handler: HistoricCSVDataHandler,
+        data_handler: CustomCSVDataExecutor,
         execution_handler: SimulatedExecutionHandler,
         portfolio: portfolio,
         stratagy: stratagy,
         strat_params_list: dict) -> None:
-        
-        self.__csv_dir = csv_dir
+
+        self.__data_iter = data_iter
         self.__symbol_list = symbol_list
         self.__initial_capital = initial_capital
         self.__heartbeat = heartbeat
@@ -37,10 +37,9 @@ class Backtest(object):
         self.__signals = 0
         self.__orders = 0
         self.__fills = 0
-        self.__num_stats = 1
 
         self.__strat_params_list = strat_params_list
-
+        
     @property
     def get_strat_params_list(self) -> dict:
         return self.__strat_params_list
@@ -58,8 +57,8 @@ class Backtest(object):
         return self.__events
 
     @property
-    def get_csv_dir(self) -> str:
-        return self.__csv_dir
+    def get_data_iter(self) -> str:
+        return self.__data_iter
 
     @property
     def get_symbol_list(self) -> list:
@@ -67,7 +66,7 @@ class Backtest(object):
 
     def _generate_trading_instances(self) -> None:
         print("Creating Data Handler, Stratagy, Portfolio and ExecutionHandler")
-        self.data_handler =  self.__data_handler_cls(self.get_events, self.get_csv_dir, self.get_symbol_list)
+        self.data_handler = self.__data_handler_cls(self.get_data_iter, self.get_events)
         self.stratagy = self.__stratagy_cls(self.data_handler, self.get_events)
         self.portfolio = self.__portfolio_cls(self.data_handler, self.get_events, self.get_start_date, self.get_initial_capital)
         self.execution_handler = self.__execution_handler_cls(self.get_events)
@@ -90,7 +89,7 @@ class Backtest(object):
                 else:
                     if event is not None:
                         if event.get_event_type == "MARKET":
-                            self.stratagy.calculate_signals(event, self.get_strat_params_list[0][0], self.get_strat_params_list[0][1])
+                            self.stratagy.calculate_signals(event, self.get_strat_params_list[0], self.get_strat_params_list[1])
                             self.portfolio.update_timeindex()
                             if fill_flag:
                                 self.portfolio.update_fill(fill_flag)
@@ -111,8 +110,6 @@ class Backtest(object):
         print("Create summary stats ...")
         stats = self.portfolio.output_summary_stats()
         print("Creating equity curve ...")
-        # print(self.portfolio.get_equity_curve.tail(10))
-        # pprint(stats)
         return stats
 
     def simulate_trading_visio(self) -> None:
@@ -127,8 +124,8 @@ class Backtest(object):
     #     stats = self._output_performance()
     #     pprint(stats)
 
-    def simulate_trading_opt(self, params_list) -> None:
-        print(f"Params= {self.get_strat_params_list[0][0]} - {self.get_strat_params_list[0][1]}")
+    def simulate_trading_opt(self) -> None:
+        print(f"Params= {self.get_strat_params_list[0]} - {self.get_strat_params_list[1]}")
         self._generate_trading_instances()
         self._run_backtest()
         stats = self._output_performance()
@@ -139,5 +136,5 @@ class Backtest(object):
             sharp = float(stats[1][1])
             max_dd = float(stats[2][1].replace("%", ""))
             dd_dur = int(stats[3][1])
-            fout.write(f"{self.get_strat_params_list[0][0]}, {self.get_strat_params_list[0][1]}, {total_return}, {sharp}, {max_dd}, {dd_dur}\n")
+            fout.write(f"{self.get_strat_params_list[0]}, {self.get_strat_params_list[1]}, {total_return}, {sharp}, {max_dd}, {dd_dur}\n")
             
