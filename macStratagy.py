@@ -129,8 +129,8 @@ if __name__ == "__main__":
         symbol_list)
     data_iter = data()
 
-    short_sma_window = [100, 500, 1_000]
-    long_sma_window = [5_000, 7_500, 10_000]
+    short_sma_window = [100, 150, 200]
+    long_sma_window = [500, 750, 1_000]
     strat_params = list(product(short_sma_window, long_sma_window))
     strat_params_list = []
     for item in strat_params:
