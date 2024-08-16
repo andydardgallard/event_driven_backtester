@@ -2,9 +2,8 @@
 # -*- coding: utf-8 -*-
 
 from abc import ABCMeta, abstractmethod
-import datetime as dt
 from queue import Queue
-from event import Event, OrderEvent, FillEvent
+from event import OrderEvent, FillEvent, MarginCallEvent
 
 class ExecutionHandler(object):
     __metaclass__ = ABCMeta
@@ -25,12 +24,18 @@ class SimulatedExecutionHandler(ExecutionHandler):
     def execute_order(self, event: OrderEvent):
         if event.get_event_type == "ORDER":
             fill_event = FillEvent(
-                # dt.datetime.utcnow(),
                 event.get_timeindx,
                 event.get_symbol,
                 "FORTS",
                 event.get_quantity,
                 event.get_direction,
-                None
+                event.get_signal_params,
+                fill_cost= 0.0,
+                commission= None
             )
         self.__events.put(fill_event)
+
+    def execute_margin_call(self, event: MarginCallEvent) -> None:
+        if event.get_event_type == "MARGINCALL":
+            pass
+            #TODO marginCall_executor

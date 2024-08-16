@@ -7,6 +7,8 @@ import numpy as np
 import pandas as pd
 from event import MarketEvent
 import os
+from collections import OrderedDict
+from handler import resample_handler
 
 class DataHandler(object):
     __metaclass__ = ABCMeta
@@ -176,9 +178,9 @@ class CustomCSVDataHandler():
         self.__params = params
         self.__timeframe = timeframe
         self.__compression = compression
+        self.__symbol_list = symbol_list
         self._loader()
 
-        self.__symbol_list = symbol_list
         self.__symbol_data = {}
         self._open_convert_csv_files()
 
@@ -219,62 +221,32 @@ class CustomCSVDataHandler():
         names = dict(sorted(names.items(), key= lambda x:x[1]))
 
         for file in list_of_files:
-            if os.path.isfile(f"{path}/{file}"):
-                #load and parse data
-                with open(f"{path}/{file}", 'r') as fin:
-                    dataFrame = pd.read_csv(
-                        fin,
-                        sep=self.get_params["separator"],
-                        header= self.get_params["headers"],
-                        names= list(names.keys()),
-                        dtype= {"date": str, "time": str}
-                        )
-                    if self.get_params["time"] != -1:
-                        dataFrame["datetime"] = pd.to_datetime(dataFrame.pop("date")+' '+dataFrame.pop("time"), format="%Y%m%d %H%M%S")
-                        dataFrame = dataFrame.set_index("datetime").sort_index()
-                    else:
-                        dataFrame = dataFrame.set_index("date").sort_index()
+            if file in self.get_symbol_list:
+                if os.path.isfile(f"{path}/{file}"):
+                    #load and parse data
+                    with open(f"{path}/{file}", 'r') as fin:
+                        dataFrame = pd.read_csv(
+                            fin,
+                            sep=self.get_params["separator"],
+                            header= self.get_params["headers"],
+                            names= list(names.keys()),
+                            dtype= {"date": str, "time": str},
+                            engine= "python"
+                            )
+                        if self.get_params["time"] != -1:
+                            try:
+                                dataFrame["datetime"] = pd.to_datetime(dataFrame.pop("date")+' '+dataFrame.pop("time"), format="%Y%m%d %H%M%S")
+                                dataFrame = dataFrame.set_index("datetime").sort_index()
+                            except:
+                                print("The format of headers in dataFile does not match the format of given params!")
+                        else:
+                            dataFrame = dataFrame.set_index("date").sort_index()
                     
-                    #resample data
-                    resampled_df = pd.DataFrame()
-                    label = "right" if self.get_timeframe != 'd' else "left"
-                    if self.get_params["open"] > 0:
-                        resampled_df["open"] = dataFrame[
-                            dataFrame.columns.values[self.get_params["open"] - 2]
-                            ].resample(
-                                f'{self.get_compression}{self.get_timeframe}', label=label, closed='right'
-                                ).first().dropna()
-                    if self.get_params["high"] > 0:
-                        resampled_df["high"] = dataFrame[
-                            dataFrame.columns.values[self.get_params["high"] - 2]
-                            ].resample(
-                                f'{self.get_compression}{self.get_timeframe}', label=label, closed='right'
-                                ).max().dropna()
-                    if self.get_params["low"] > 0:
-                        resampled_df["low"] = dataFrame[
-                            dataFrame.columns.values[self.get_params["low"] - 2]
-                            ].resample(
-                                f'{self.get_compression}{self.get_timeframe}', label=label, closed='right'
-                                ).min().dropna()
-                    if self.get_params["close"] > 0:
-                        resampled_df["close"] = dataFrame[
-                            dataFrame.columns.values[self.get_params["close"] - 2]
-                            ].resample(
-                                f'{self.get_compression}{self.get_timeframe}', label=label, closed='right'
-                                ).last().dropna()
-                    if self.get_params["vol"] > 0:
-                        resampled_df["vol"] = dataFrame[
-                            dataFrame.columns.values[self.get_params["vol"] - 2]
-                            ].resample(
-                                f'{self.get_compression}{self.get_timeframe}', label=label, closed='right'
-                            ).sum().dropna()
-                    if self.get_params["oi"] > 0:
-                        resampled_df["oi"] = dataFrame[
-                            dataFrame.columns.values[self.get_params["oi"] - 2]
-                            ].resample(
-                                f'{self.get_compression}{self.get_timeframe}', label=label, closed='right'
-                            ).sum().dropna()
-                    self._write_to_csv(resampled_df, file)
+                        #resample data
+                        list_of_headers = resample_handler(self.get_params)
+                        resampled_df = dataFrame.resample(f'{self.get_compression}{self.get_timeframe}').agg(
+                            OrderedDict(list_of_headers)).dropna()
+                        self._write_to_csv(resampled_df, file)
 
     def _write_to_csv(self, dataFrame: pd.DataFrame, file: str, ) -> None:
         if not os.path.exists(f"{self.get_csv_dir}/Temp"):
@@ -394,7 +366,7 @@ class CustomCSVDataExecutor(DataHandler):
                 self.set_continue_backtest = False
             else:
                 if bar is not None:
-                    self.get_latest_symbol_data[symbol].append(bar)
+                    self.get_latest_symbol_data[symbol].append(bar)       
         self.__events.put(MarketEvent())
     
     def get_bars_quantity(self, symbol):
