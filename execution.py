@@ -3,7 +3,7 @@
 
 from abc import ABCMeta, abstractmethod
 from queue import Queue
-from event import OrderEvent, FillEvent, MarginCallEvent
+from event import OrderEvent, FillEvent
 
 class ExecutionHandler(object):
     __metaclass__ = ABCMeta
@@ -34,8 +34,3 @@ class SimulatedExecutionHandler(ExecutionHandler):
                 commission= None
             )
         self.__events.put(fill_event)
-
-    def execute_margin_call(self, event: MarginCallEvent) -> None:
-        if event.get_event_type == "MARGINCALL":
-            pass
-            #TODO marginCall_executor

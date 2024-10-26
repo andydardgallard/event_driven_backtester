@@ -2,7 +2,6 @@
 # -*- coding: utf-8 -*-
 
 import datetime as dt
-from commission_plans import forts_commision
 
 class Event(object):
     def __init__(self) -> None:
@@ -22,65 +21,14 @@ class MarketEvent(Event):
         super().__init__()
         self.set_event_type = "MARKET"
 
-class MarginCallEvent(Event):
-    def __init__(self, symbol: str, datetime: dt, commission=None) -> None:
-        super().__init__()
-        self.set_event_type = "MARGINCALL"
-        self.__symbol = symbol
-        self.__datetime = datetime
-        self.__commission = commission
-
-        if commission is None:
-            self.forts_commision_()
-        else:
-            self.__commission = commission
-
-    @property
-    def get_commission(self) -> float:
-        return self.__commission
-    
-    @get_commission.setter
-    def set_commission(self, commission: float) -> None:
-        self.__commission = commission
-
-    def forts_commision_(self) -> float:
-        self.set_commission = forts_commision()
-        return self.__commission
-    
-    @property
-    def get_symbol(self) -> str:
-        return self.__symbol
-
-    @property
-    def get_datetime(self) -> dt.datetime:
-        return self.__datetime
-
 class SignalEvent(Event):
-    def __init__(self, stratagy_id: int, symbol: str, datetime: dt, signal_params: dict, commission=None) -> None:
+    def __init__(self, stratagy_id: int, symbol: str, datetime: dt, signal_params: dict) -> None:
         super().__init__()
         self.set_event_type = "SIGNAL"
         self.__stratagy_id = stratagy_id
         self.__symbol = symbol
         self.__datetime = datetime
         self.__signal_params = signal_params
-        self.__commission = commission
-
-        if commission is None:
-            self.forts_commision_()
-        else:
-            self.__commission = commission
-
-    @property
-    def get_commission(self) -> float:
-        return self.__commission
-    
-    @get_commission.setter
-    def set_commission(self, commission: float) -> None:
-        self.__commission = commission
-
-    def forts_commision_(self) -> float:
-        self.set_commission = forts_commision()
-        return self.__commission
     
     @property
     def get_signal_params(self) -> dict:
@@ -113,7 +61,6 @@ class OrderEvent(Event):
         self.__timeindx = timeindx
         self.__signal_params = signal_params
 
-    
     @property
     def get_signal_params(self) -> dict:
         return self.__signal_params
@@ -159,14 +106,7 @@ class FillEvent(Event):
         self.__quantity = quantity
         self.__direction = direction
         self.__fill_cost = fill_cost
-        self.__commission = commission
-        self.__signal_params = signal_params
-        
-        if commission is None:
-            self.forts_commision_()
-        else:
-            self.__commission = commission
-            
+        self.__signal_params = signal_params       
 
     @property
     def get_signal_params(self) -> dict:
@@ -195,15 +135,3 @@ class FillEvent(Event):
     @property
     def get_fill_cost(self) -> float:
         return self.__fill_cost
-
-    @property
-    def get_commission(self) -> float:
-        return self.__commission
-
-    @get_commission.setter
-    def set_commission(self, commission: float) -> None:
-        self.__commission = commission
-
-    def forts_commision_(self) -> float:
-        self.set_commission = forts_commision()
-        return self.__commission

@@ -9,4 +9,3 @@ class Stratagy(object):
     @abstractmethod
     def calculate_signals(self):
         raise NotImplementedError("Should implement calculate_signals()")
-    

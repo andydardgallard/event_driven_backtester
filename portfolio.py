@@ -2,23 +2,33 @@
 # -*- coding: utf-8 -*-
 
 import pandas as pd
-from event import FillEvent, OrderEvent, SignalEvent, Event, MarginCallEvent
+from event import FillEvent, OrderEvent, SignalEvent, Event
 from performance import calculate_sharp_ratio, get_deal_stats, calculate_winRate, calculate_expected_payoff, calculate_breakeven
 from performance import calculate_breakeven_with_tradeoff, calculate_profit_factor, get_holdings_stats, calculate_return, calculate_drawdowns
-from performance import calculate_recovery_factor, calculate_sortino_ratio, calculate_apr_to_dd_factor
+from performance import calculate_recovery_factor, calculate_sortino_ratio, calculate_apr_to_dd_factor, calculate_var
 from data import HistoricCSVDataHandler
 from posSizers import mpr
 from handler import instruments_info, convert_str_toDateTime
+import datetime as dt
 import numpy as np
 import math
+from commission_plans import forts_commission
+from risks import marginCall_control
+from stratagy import Stratagy
 
 class Portfolio(object):
-    def __init__(self, bars: HistoricCSVDataHandler, events: Event, initial_capital, pos_sizer_params_list, stats_mode: str) -> None:
+    '''
+    Handler of positions and holdings of backtest. Makes stats.
+    '''
+
+    def __init__(self, bars: HistoricCSVDataHandler, events: Event, initial_capital, pos_sizer_params_list, margin_params_list, stratagy: Stratagy, stats_mode: str) -> None:
         self.__bars = bars
         self.__events = events
         self.__symbol_list = self.__bars.get_symbol_list
         self.__initial_capital = initial_capital
         self.__pos_sizer_params_list = pos_sizer_params_list
+        self.__margin_params_list = margin_params_list
+        self.__stratagy = stratagy
         self.__stats_mode = stats_mode
 
         self.__all_positions = self.construct_all_positions()
@@ -27,6 +37,10 @@ class Portfolio(object):
         self.__all_holdings = self.construct_all_holdings()
         self.__current_holdings = self.construct_current_holdings()
         self.__equity_curve = None
+    
+    @property
+    def get_stratagy(self) -> Stratagy:
+        return self.__stratagy
     
     @property
     def get_stats_mode(self) -> str:
@@ -43,6 +57,10 @@ class Portfolio(object):
     @property
     def get_pos_sizer_params_list(self) -> dict:
         return self.__pos_sizer_params_list
+    
+    @property
+    def get_margin_params_list(self) -> dict:
+        return self.__margin_params_list
 
     @property
     def get_bars(self) -> HistoricCSVDataHandler:
@@ -75,7 +93,7 @@ class Portfolio(object):
     @property
     def get_initial_capital(self) -> float:
         return self.__initial_capital
-
+    
     @property
     def get_symbol_list(self) -> list:
         return self.__symbol_list
@@ -97,8 +115,10 @@ class Portfolio(object):
             d[symbol]["closedPosition"] = 0
             d[symbol]["entryCapital"] = None
             d[symbol]["entryPrice"] = None
+            d[symbol]["entryCommission"] = 0
             d[symbol]["entryDatetime"] = None
             d[symbol]["exitPrice"] = None
+            d[symbol]["exitCommission"] = 0
             d[symbol]["exitDatetime"] = None
             d[symbol]["status"] = None
             d[symbol]["dealGrossPnl"] = 0.0
@@ -115,8 +135,10 @@ class Portfolio(object):
             d[symbol]["closedPosition"] = 0
             d[symbol]["entryCapital"] = None
             d[symbol]["entryPrice"] = None
+            d[symbol]["entryCommission"] = 0
             d[symbol]["entryDatetime"] = None
             d[symbol]["exitPrice"] = None
+            d[symbol]["exitCommission"] = 0
             d[symbol]["exitDatetime"] = None
             d[symbol]["status"] = None
             d[symbol]["dealGrossPnl"] = 0.0
@@ -204,19 +226,20 @@ class Portfolio(object):
         for symbol in self.get_symbol_list:
             if self.get_current_positions[symbol]["status"] == "opened":
                 self.get_current_positions[symbol]["dealGrossPnl"] = (self.get_bars.get_latest_bar_value(symbol, "close") - self.get_current_positions[symbol]["entryPrice"]) * self.get_current_positions[symbol]["position"]
-                self.get_current_positions[symbol]["dealPnl"] = self.get_current_positions[symbol]["dealGrossPnl"] - self.get_current_positions[symbol]["commission"]
+                self.get_current_positions[symbol]["dealPnl"] = self.get_current_positions[symbol]["dealGrossPnl"] - self.get_current_positions[symbol]["entryCommission"]
 
             dp[symbol]["dealNumber"] = self.get_current_positions[symbol]["dealNumber"]
             dp[symbol]["position"] = self.get_current_positions[symbol]["position"]
             dp[symbol]["closedPosition"] = self.get_current_positions[symbol]["closedPosition"]
             dp[symbol]["entryCapital"] = self.get_current_positions[symbol]["entryCapital"]
             dp[symbol]["entryPrice"] = self.get_current_positions[symbol]["entryPrice"]
+            dp[symbol]["entryCommission"] = self.get_current_positions[symbol]["entryCommission"]
             dp[symbol]["entryDatetime"] = self.get_current_positions[symbol]["entryDatetime"]
             dp[symbol]["exitPrice"] = self.get_current_positions[symbol]["exitPrice"]
+            dp[symbol]["exitCommission"] = self.get_current_positions[symbol]["exitCommission"]
             dp[symbol]["exitDatetime"] = self.get_current_positions[symbol]["exitDatetime"]
             dp[symbol]["status"] = self.get_current_positions[symbol]["status"]
             dp[symbol]["dealGrossPnl"] = self.get_current_positions[symbol]["dealGrossPnl"]
-            dp[symbol]["commission"] = self.get_current_positions[symbol]["commission"]
             dp[symbol]["dealPnl"] = self.get_current_positions[symbol]["dealPnl"]
             dp[symbol]["signalName"] = self.get_current_positions[symbol]["signalName"]
 
@@ -226,12 +249,13 @@ class Portfolio(object):
                 self.get_current_positions[symbol]["dealNumber"] = None
                 self.get_current_positions[symbol]["entryCapital"] = None
                 self.get_current_positions[symbol]["entryPrice"] = None
+                self.get_current_positions[symbol]["entryCommission"] = 0.0
                 self.get_current_positions[symbol]["entryDatetime"] = None
                 self.get_current_positions[symbol]["exitPrice"] = None
                 self.get_current_positions[symbol]["exitDatetime"] = None
                 self.get_current_positions[symbol]["status"] = None
                 self.get_current_positions[symbol]["dealGrossPnl"] = 0.0
-                self.get_current_positions[symbol]["commission"] = 0.0
+                self.get_current_positions[symbol]["exitCommission"] = 0.0
                 self.get_current_positions[symbol]["dealPnl"] = 0.0
         self.set_all_positions = dp
 
@@ -326,17 +350,18 @@ class Portfolio(object):
             self.get_current_holdings["total"]["shortGrossPnl"] = 0.0
             self.get_current_holdings["total"]["shortPnl"] = 0.0
 
-        if dh["total"]["cash"] < 0:
+        self.set_all_holding = dh
+
+        if not marginCall_control(dh, dp, self.get_margin_params_list, event):
             for symbol in self.get_symbol_list:
                 if self.get_current_positions[symbol]["position"] != 0:
-                    marginCall_event = MarginCallEvent(symbol, latest_datetime, dh["datetime"])
-                self.__events.put(marginCall_event)
-
-        self.set_all_holding = dh
+                    self.get_stratagy.get_signal_params["signal_name"][symbol] = "EXIT"
+                    marginCall_signal = SignalEvent(1, symbol, latest_datetime, self.get_stratagy.get_signal_params)
+                    self.__events.put(marginCall_signal)
+                    self.get_stratagy.get_bought[symbol] = "OUT"
 
     def udate_positions_from_fill(self, fill: FillEvent) -> None:
         symbol = fill.get_symbol
-        commission = fill.get_commission
         fill_dir = 0
 
         if fill.get_direction == "BUY":
@@ -348,8 +373,8 @@ class Portfolio(object):
 
         if fill.get_signal_params["signal_name"][symbol] == "EXIT":
             self.get_current_positions[symbol]["exitPrice"] = self.__bars.get_latest_bar_value(symbol, "open")
+            self.get_current_positions[symbol]["exitCommission"] = forts_commission(symbol, self.get_current_positions[symbol]["exitPrice"]) * fill.get_quantity + 1
             self.get_current_positions[symbol]["exitDatetime"] = self.__bars.get_latest_bar_datetime(symbol)
-            self.get_current_positions[symbol]["commission"] += commission * fill.get_quantity
             self.get_current_positions[symbol]["status"] = "closed"
             self.get_current_positions[symbol]["dealGrossPnl"] = (self.get_current_positions[symbol]["exitPrice"] - self.get_current_positions[symbol]["entryPrice"]) * -fill_dir * fill.get_quantity
             self.get_current_positions[symbol]["closedPosition"] = -fill_dir * fill.get_quantity
@@ -358,19 +383,19 @@ class Portfolio(object):
             self.set_deals_count += 1
             self.get_current_positions[symbol]["entryCapital"] = self.get_current_holdings["total"]["cash"]
             self.get_current_positions[symbol]["entryPrice"] = self.__bars.get_latest_bar_value(symbol, "open")
+            self.get_current_positions[symbol]["entryCommission"] = forts_commission(symbol, self.get_current_positions[symbol]["entryPrice"]) * fill.get_quantity - 1
             self.get_current_positions[symbol]["entryDatetime"] = self.__bars.get_latest_bar_datetime(symbol)
             self.get_current_positions[symbol]["exitPrice"] = None
+            self.get_current_positions[symbol]["exitCommission"] = 0
             self.get_current_positions[symbol]["exitDatetime"] = None
             self.get_current_positions[symbol]["status"] = "opened"
             self.get_current_positions[symbol]["dealGrossPnl"] = (self.__bars.get_latest_bar_value(symbol, "close") - self.get_current_positions[symbol]["entryPrice"]) * fill_dir * fill.get_quantity
-            self.get_current_positions[symbol]["commission"] = commission * fill.get_quantity
             self.get_current_positions[symbol]["closedPosition"] = 0        
-
-        self.get_current_positions[symbol]["dealPnl"] = self.get_current_positions[symbol]["dealGrossPnl"] - self.get_current_positions[symbol]["commission"]
+        
+        self.get_current_positions[symbol]["dealPnl"] = self.get_current_positions[symbol]["dealGrossPnl"] - self.get_current_positions[symbol]["entryCommission"] - self.get_current_positions[symbol]["exitCommission"] 
 
     def update_holdings_from_fill(self, fill: FillEvent) -> None:
         symbol = fill.get_symbol
-        commission = fill.get_commission
         fill_dir = 0
         if fill.get_direction == "BUY":
             fill_dir = 1
@@ -378,39 +403,39 @@ class Portfolio(object):
             fill_dir = -1
             
         self.get_current_holdings[symbol]["signalName"] = fill.get_signal_params["signal_name"][symbol]
-        self.get_current_holdings[symbol]["commission"] = commission * fill.get_quantity
-
         if fill.get_signal_params["signal_name"][symbol] == "EXIT":
             self.get_current_holdings[symbol]["grossPnl"] = -fill_dir * fill.get_quantity \
                                                             * (self.__bars.get_latest_bar_value(symbol, "open") - self.__bars.get_latest_bars_value(symbol, "close", 2)[0])
+            self.get_current_holdings[symbol]["commission"] = self.get_current_positions[symbol]["exitCommission"]
             if self.get_stats_mode == "full":
                 if fill_dir == -1:
                     self.get_current_holdings[symbol]["longGrossPnl"] = self.get_current_holdings[symbol]["grossPnl"]
                     self.get_current_holdings[symbol]["longCommission"] = self.get_current_holdings[symbol]["commission"]
-                    self.get_current_holdings[symbol]["longPnl"] = self.get_current_holdings[symbol]["longGrossPnl"] - commission * fill.get_quantity
+                    self.get_current_holdings[symbol]["longPnl"] = self.get_current_holdings[symbol]["longGrossPnl"] - self.get_current_holdings[symbol]["commission"]
                 else:
                     self.get_current_holdings[symbol]["shortGrossPnl"] = self.get_current_holdings[symbol]["grossPnl"]
                     self.get_current_holdings[symbol]["shortCommission"] = self.get_current_holdings[symbol]["commission"]
-                    self.get_current_holdings[symbol]["shortPnl"] = self.get_current_holdings[symbol]["shortGrossPnl"] - commission * fill.get_quantity
+                    self.get_current_holdings[symbol]["shortPnl"] = self.get_current_holdings[symbol]["shortGrossPnl"] - self.get_current_holdings[symbol]["commission"]
             if instruments_info[symbol]["type"] == "futures":
                 self.get_current_holdings["total"]["cash"] += instruments_info[symbol]["margin"] * fill.get_quantity
                 self.get_current_holdings["total"]["blocked"] += instruments_info[symbol]["margin"] * fill.get_quantity
         else:
             self.get_current_holdings[symbol]["grossPnl"] = -fill_dir * fill.get_quantity \
                                                         * (self.__bars.get_latest_bar_value(symbol, "open") - self.__bars.get_latest_bar_value(symbol, "close"))
+            self.get_current_holdings[symbol]["commission"] = self.get_current_positions[symbol]["entryCommission"]
             if self.get_stats_mode == "full":
                 if fill_dir == 1:
                     self.get_current_holdings[symbol]["longGrossPnl"] = self.get_current_holdings[symbol]["grossPnl"]
                     self.get_current_holdings[symbol]["longCommission"] = self.get_current_holdings[symbol]["commission"]
-                    self.get_current_holdings[symbol]["longPnl"] = self.get_current_holdings[symbol]["longGrossPnl"] - commission * fill.get_quantity
+                    self.get_current_holdings[symbol]["longPnl"] = self.get_current_holdings[symbol]["longGrossPnl"] - self.get_current_holdings[symbol]["commission"]
                 else:
                     self.get_current_holdings[symbol]["shortGrossPnl"] = self.get_current_holdings[symbol]["grossPnl"]
                     self.get_current_holdings[symbol]["shortCommission"] = self.get_current_holdings[symbol]["commission"]
-                    self.get_current_holdings[symbol]["shortPnl"] = self.get_current_holdings[symbol]["shortGrossPnl"] - commission * fill.get_quantity
+                    self.get_current_holdings[symbol]["shortPnl"] = self.get_current_holdings[symbol]["shortGrossPnl"] - self.get_current_holdings[symbol]["commission"]
             if instruments_info[symbol]["type"] == "futures":
                 self.get_current_holdings["total"]["cash"] -= instruments_info[symbol]["margin"] * fill.get_quantity
                 self.get_current_holdings["total"]["blocked"] -= instruments_info[symbol]["margin"] * fill.get_quantity
-        self.get_current_holdings[symbol]["pnl"] = self.get_current_holdings[symbol]["grossPnl"] - commission * fill.get_quantity
+        self.get_current_holdings[symbol]["pnl"] = self.get_current_holdings[symbol]["grossPnl"] - self.get_current_holdings[symbol]["commission"]
         
         self.get_current_holdings["total"]["grossPnl"] += self.get_current_holdings[symbol]["grossPnl"]
         self.get_current_holdings["total"]["pnl"] += self.get_current_holdings[symbol]["pnl"]
@@ -424,7 +449,6 @@ class Portfolio(object):
         if event.get_event_type == "FILL":
             self.udate_positions_from_fill(event)
             self.update_holdings_from_fill(event)
-            # pass
 
     def generate_naive_order(self, signal: SignalEvent) -> OrderEvent:
         order = None
@@ -436,33 +460,37 @@ class Portfolio(object):
         pos_sizer_type = self.get_pos_sizer_params_list["pos_sizer_type"]
         cash = self.get_current_holdings["total"]["cash"]
         mpr_ = self.get_pos_sizer_params_list["pos_sizer_value"]
-        commission = signal.get_commission
 
         if signal_name == "LONG" and cur_quantity == 0 and cash > 0:
             if pos_sizer_type == "mpr":
                 entry_price = self.get_bars.get_latest_bar_value(symbol, "high")
                 exit_price = signal.get_signal_params["low_level"][symbol]
-                mkt_quantity = min(mpr(cash, mpr_, exit_price, entry_price, commission), math.floor(cash / instruments_info[symbol]["margin"]))
+                mkt_quantity = min(mpr(symbol, cash, mpr_, exit_price, entry_price), math.floor(cash / instruments_info[symbol]["margin"]))
                 mkt_quantity = 1 if mkt_quantity == 0 else mkt_quantity
             else:
+                entry_price = self.get_bars.get_latest_bar_value(symbol, "high")
                 mkt_quantity = 1
-            order = OrderEvent(symbol, order_type, mkt_quantity, "BUY", signal.get_signal_params, timeindx)
+            if marginCall_control(self.get_current_holdings, mkt_quantity, self.get_margin_params_list, signal):
+                order = OrderEvent(symbol, order_type, mkt_quantity, "BUY", signal.get_signal_params, timeindx)
+        
         if signal_name == "SHORT" and cur_quantity == 0 and cash > 0:
             if pos_sizer_type == "mpr":
                 entry_price = self.get_bars.get_latest_bar_value(symbol, "low")
                 exit_price = signal.get_signal_params["high_level"][symbol]
-                mkt_quantity = min(mpr(cash, mpr_, exit_price, entry_price, commission), math.floor(cash / instruments_info[symbol]["margin"]))
+                mkt_quantity = min(mpr(symbol, cash, mpr_, exit_price, entry_price), math.floor(cash / instruments_info[symbol]["margin"]))
                 mkt_quantity = 1 if mkt_quantity == 0 else mkt_quantity
             else:
+                entry_price = self.get_bars.get_latest_bar_value(symbol, "low")
                 mkt_quantity = 1
-            order = OrderEvent(symbol, order_type, mkt_quantity, "SELL", signal.get_signal_params, timeindx)
+            if marginCall_control(self.get_current_holdings, mkt_quantity, self.get_margin_params_list, signal):
+                order = OrderEvent(symbol, order_type, mkt_quantity, "SELL", signal.get_signal_params, timeindx)
 
         if signal_name == "EXIT" and cur_quantity > 0:
             order = OrderEvent(symbol, order_type, abs(cur_quantity), "SELL", signal.get_signal_params, timeindx)
         if signal_name == "EXIT" and cur_quantity < 0:
             order = OrderEvent(symbol, order_type, abs(cur_quantity), "BUY", signal.get_signal_params, timeindx)
         return order
-    
+
     #TODO def market_order
     #TODO def limit_order
     #TODO def margin_call
@@ -486,4 +514,5 @@ class Portfolio(object):
         holdings_stats = calculate_recovery_factor(holdings_stats)
         holdings_stats = calculate_sharp_ratio(holdings_stats, self.get_all_holdings)
         holdings_stats = calculate_sortino_ratio(holdings_stats, self.get_all_holdings)
+        holdings_stats = calculate_var(holdings_stats, self.get_all_holdings, 6500, 0.01, 10)
         return holdings_stats

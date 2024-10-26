@@ -74,6 +74,10 @@ class HistoricCSVDataHandler(DataHandler):
         return self.__events
 
     def _open_convert_csv_files(self):
+        '''
+        Create data generator
+        '''
+
         comb_index = pd.core.indexes.datetimes.DatetimeIndex
         for symbol in self.__symbol_list:
             self.__symbol_data[symbol] = pd.read_csv(
@@ -100,7 +104,7 @@ class HistoricCSVDataHandler(DataHandler):
             self.__symbol_data[symbol] = self.__symbol_data[symbol].reindex(
                 index= comb_index,
                 method= "pad"
-            ).to_dict(orient= "index")#.iterrows()
+            ).to_dict(orient= "index")
             self.__symbol_data[symbol] = iter(self.__symbol_data[symbol].items())
 
     def _get_new_bar(self, symbol):
@@ -172,7 +176,10 @@ class HistoricCSVDataHandler(DataHandler):
         else:
             return len(bars_list)
 
-class CustomCSVDataHandler():
+class CustomCSVDataHandler(object):
+    '''
+    Open, read, compress csv data files
+    '''
     def __init__(self, csv_dir, params, timeframe, compression, symbol_list) -> None:
         self.__csv_dir = csv_dir
         self.__params = params
@@ -282,6 +289,10 @@ class CustomCSVDataHandler():
         return self.get_symbol_data
 
 class CustomCSVDataExecutor(DataHandler):
+    '''
+    Handler of data generator
+    '''
+
     def __init__(self, data_iter: dict, events:Queue) -> None:
         super().__init__()
         self.__data_iter = data_iter

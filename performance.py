@@ -5,6 +5,10 @@ import numpy as np
 import pandas as pd
 import datetime
 
+'''
+Create performance stats of backtest
+'''
+
 def get_deal_stats(all_positions: dict, symbol_list: list, initial_capital: float, stats_mode: str) -> dict:
     stats = {}
     stats["total"] = {}
@@ -23,7 +27,6 @@ def get_deal_stats(all_positions: dict, symbol_list: list, initial_capital: floa
     stats["total"]["deals_stats"]["loss_commission"] = 0
     stats["total"]["deals_stats"]["loss_deals_pnl"] = 0
 
-
     for symbol in symbol_list:
         stats[symbol] = {}
         if stats_mode == "full":
@@ -32,25 +35,28 @@ def get_deal_stats(all_positions: dict, symbol_list: list, initial_capital: floa
         for pos in all_positions:
             deals.append(pos[symbol])
         deals = list({item["dealNumber"]: item for item in deals if item["dealNumber"] != None}.values())
-    
+
         stats[symbol]["deals_stats"] = {}
         stats[symbol]["deals_stats"]["deals_count"] = len(deals)
         stats[symbol]["deals_stats"]["deals_gross_pnl"] = sum([i["dealGrossPnl"] for i in deals])
-        stats[symbol]["deals_stats"]["commission"] = sum([i["commission"] for i in deals])
+        stats[symbol]["deals_stats"]["commission"] = sum([i["entryCommission"] + i["exitCommission"] for i in deals])
         stats[symbol]["deals_stats"]["deals_pnl"] = sum([i["dealPnl"] for i in deals])
         if len(deals) > 0:
             stats[symbol]["deals_stats"]["deal_pnl_avrg"] = stats[symbol]["deals_stats"]["deals_pnl"] / stats[symbol]["deals_stats"]["deals_count"]
             stats[symbol]["deals_stats"]["deal_pnl_avrg"] = float('{:.3f}'.format(stats[symbol]["deals_stats"]["deal_pnl_avrg"]))
             stats[symbol]["deals_stats"]["deals_return"] = stats[symbol]["deals_stats"]["deals_pnl"] / deals[0]["entryCapital"]
             stats[symbol]["deals_stats"]["deals_return"] = float('{:.5f}'.format(stats[symbol]["deals_stats"]["deals_return"]))
+            stats[symbol]["deals_stats"]["deals_return_avg"] = stats[symbol]["deals_stats"]["deals_return"] / stats[symbol]["deals_stats"]["deals_count"]
+            stats[symbol]["deals_stats"]["deals_return_avg"] = float('{:.5f}'.format(stats[symbol]["deals_stats"]["deals_return_avg"]))
         else:
             stats[symbol]["deals_stats"]["deal_pnl_avrg"] = 0
             stats[symbol]["deals_stats"]["deals_return"] = 0 
+            stats[symbol]["deals_stats"]["deals_return_avg"] = 0
 
         win_deals = [i["dealPnl"] for i in deals if i["dealPnl"] > 0]
         stats[symbol]["deals_stats"]["win_deals_count"] = len(win_deals)
         stats[symbol]["deals_stats"]["win_deals_gross_pnl"] = sum([i["dealGrossPnl"] for i in deals if i["dealPnl"] > 0])
-        stats[symbol]["deals_stats"]["win_commission"] = sum([i["commission"] for i in deals if i["dealPnl"] > 0])
+        stats[symbol]["deals_stats"]["win_commission"] = sum([i["entryCommission"] + i["exitCommission"] for i in deals if i["dealPnl"] > 0])
         stats[symbol]["deals_stats"]["win_deals_pnl"] = sum([i["dealPnl"] for i in deals if i["dealPnl"] > 0])
         if len(win_deals) > 0:
             stats[symbol]["deals_stats"]["win_deal_pnl_avrg"] = stats[symbol]["deals_stats"]["win_deals_pnl"] / stats[symbol]["deals_stats"]["win_deals_count"]
@@ -61,7 +67,7 @@ def get_deal_stats(all_positions: dict, symbol_list: list, initial_capital: floa
         loss_deals = [i["dealPnl"] for i in deals if i["dealPnl"] <= 0]
         stats[symbol]["deals_stats"]["loss_deals_count"] = len(loss_deals)
         stats[symbol]["deals_stats"]["loss_deals_gross_pnl"] = sum([i["dealGrossPnl"] for i in deals if i["dealPnl"] <= 0])
-        stats[symbol]["deals_stats"]["loss_commission"] = sum([i["commission"] for i in deals if i["dealPnl"] <= 0])
+        stats[symbol]["deals_stats"]["loss_commission"] = sum([i["entryCommission"] + i["exitCommission"] for i in deals if i["dealPnl"] <= 0])
         stats[symbol]["deals_stats"]["loss_deals_pnl"] = sum([i["dealPnl"] for i in deals if i["dealPnl"] <= 0])
         if len(loss_deals) > 0:
             stats[symbol]["deals_stats"]["loss_deal_pnl_avrg"] = stats[symbol]["deals_stats"]["loss_deals_pnl"] / stats[symbol]["deals_stats"]["loss_deals_count"]
@@ -73,10 +79,17 @@ def get_deal_stats(all_positions: dict, symbol_list: list, initial_capital: floa
         stats["total"]["deals_stats"]["deals_gross_pnl"] += stats[symbol]["deals_stats"]["deals_gross_pnl"]
         stats["total"]["deals_stats"]["commission"] += stats[symbol]["deals_stats"]["commission"]
         stats["total"]["deals_stats"]["deals_pnl"] += stats[symbol]["deals_stats"]["deals_pnl"]
-        stats["total"]["deals_stats"]["deal_pnl_avrg"] = stats["total"]["deals_stats"]["deals_pnl"] / stats["total"]["deals_stats"]["deals_count"]
-        stats["total"]["deals_stats"]["deal_pnl_avrg"] = float('{:.3f}'.format(stats["total"]["deals_stats"]["deal_pnl_avrg"]))
-        stats['total']["deals_stats"]["deals_return"] = stats["total"]["deals_stats"]["deals_pnl"] / initial_capital
-        stats["total"]["deals_stats"]["deals_return"] = float('{:.5f}'.format(stats["total"]["deals_stats"]["deals_return"]))
+        if stats["total"]["deals_stats"]["deals_count"] > 0: 
+            stats["total"]["deals_stats"]["deal_pnl_avrg"] = stats["total"]["deals_stats"]["deals_pnl"] / stats["total"]["deals_stats"]["deals_count"]
+            stats["total"]["deals_stats"]["deal_pnl_avrg"] = float('{:.3f}'.format(stats["total"]["deals_stats"]["deal_pnl_avrg"]))
+            stats['total']["deals_stats"]["deals_return"] = stats["total"]["deals_stats"]["deals_pnl"] / initial_capital
+            stats["total"]["deals_stats"]["deals_return"] = float('{:.5f}'.format(stats["total"]["deals_stats"]["deals_return"]))
+            stats["total"]["deals_stats"]["deals_return_avg"] = stats["total"]["deals_stats"]["deals_return"] / stats["total"]["deals_stats"]["deals_count"]
+            stats["total"]["deals_stats"]["deals_return_avg"] = float('{:.5f}'.format(stats["total"]["deals_stats"]["deals_return_avg"]))
+        else:
+            stats["total"]["deals_stats"]["deal_pnl_avrg"] = 0.0
+            stats['total']["deals_stats"]["deals_return"] = 0.0
+            stats["total"]["deals_stats"]["deals_return_avg"] = 0.0
 
         stats["total"]["deals_stats"]["win_deals_count"] += stats[symbol]["deals_stats"]["win_deals_count"]
         stats["total"]["deals_stats"]["win_deals_gross_pnl"] += stats[symbol]["deals_stats"]["win_deals_gross_pnl"]
@@ -92,8 +105,12 @@ def get_deal_stats(all_positions: dict, symbol_list: list, initial_capital: floa
         stats["total"]["deals_stats"]["loss_deals_gross_pnl"] += stats[symbol]["deals_stats"]["loss_deals_gross_pnl"]
         stats["total"]["deals_stats"]["loss_commission"] += stats[symbol]["deals_stats"]["loss_commission"]
         stats["total"]["deals_stats"]["loss_deals_pnl"] += stats[symbol]["deals_stats"]["loss_deals_pnl"]
-        stats["total"]["deals_stats"]["loss_deal_pnl_avrg"] = stats["total"]["deals_stats"]["loss_deals_pnl"] / stats["total"]["deals_stats"]["loss_deals_count"]
-        stats["total"]["deals_stats"]["loss_deal_pnl_avrg"] = float('{:.3f}'.format(stats["total"]["deals_stats"]["loss_deal_pnl_avrg"]))
+        if stats["total"]["deals_stats"]["loss_deals_count"] > 0:
+            stats["total"]["deals_stats"]["loss_deal_pnl_avrg"] = stats["total"]["deals_stats"]["loss_deals_pnl"] / stats["total"]["deals_stats"]["loss_deals_count"]
+            stats["total"]["deals_stats"]["loss_deal_pnl_avrg"] = float('{:.3f}'.format(stats["total"]["deals_stats"]["loss_deal_pnl_avrg"]))
+        else:
+            stats["total"]["deals_stats"]["loss_deal_pnl_avrg"] = 0
+
     return stats
 
 def calculate_winRate(stats: dict, symbol_list: list, stats_mode: str) -> dict:
@@ -104,8 +121,11 @@ def calculate_winRate(stats: dict, symbol_list: list, stats_mode: str) -> dict:
                 stats[symbol]["koefs"]["win_rate"] = float('{:.5f}'.format(stats[symbol]["koefs"]["win_rate"]))
             else:
                 stats[symbol]["koefs"]["win_rate"] = 0
-    stats["total"]["koefs"]["win_rate"] = stats["total"]["deals_stats"]["win_deals_count"] / stats["total"]["deals_stats"]["deals_count"]
-    stats["total"]["koefs"]["win_rate"] = float('{:.5f}'.format(stats["total"]["koefs"]["win_rate"]))
+    if stats["total"]["deals_stats"]["deals_count"] > 0:
+        stats["total"]["koefs"]["win_rate"] = stats["total"]["deals_stats"]["win_deals_count"] / stats["total"]["deals_stats"]["deals_count"]
+        stats["total"]["koefs"]["win_rate"] = float('{:.5f}'.format(stats["total"]["koefs"]["win_rate"]))
+    else:
+        stats["total"]["koefs"]["win_rate"] = 0
     return stats
 
 def calculate_expected_payoff(stats: dict, symbol_list: list, stats_mode: str) -> dict:
@@ -125,21 +145,24 @@ def calculate_expected_payoff(stats: dict, symbol_list: list, stats_mode: str) -
     stats["total"]["koefs"]["expected_payoff"] = stats["total"]["koefs"]["win_rate"] * stats["total"]["deals_stats"]["win_deal_pnl_avrg"] \
                                             + (1 - stats["total"]["koefs"]["win_rate"]) * stats["total"]["deals_stats"]["loss_deal_pnl_avrg"]
     stats["total"]["koefs"]["expected_payoff"] = float('{:.3f}'.format(stats["total"]["koefs"]["expected_payoff"]))
-    stats["total"]["koefs"]["expected_payoff_probability"] = ((1 + (stats["total"]["deals_stats"]["win_deal_pnl_avrg"] / abs(stats["total"]["deals_stats"]["loss_deal_pnl_avrg"]))) \
-                                            * stats["total"]["koefs"]["win_rate"]) - 1
-    stats["total"]["koefs"]["expected_payoff_probability"] = float('{:.5f}'.format(stats["total"]["koefs"]["expected_payoff_probability"]))
+    if stats["total"]["deals_stats"]["loss_deal_pnl_avrg"]:
+        stats["total"]["koefs"]["expected_payoff_probability"] = ((1 + (stats["total"]["deals_stats"]["win_deal_pnl_avrg"] / abs(stats["total"]["deals_stats"]["loss_deal_pnl_avrg"]))) \
+                                                * stats["total"]["koefs"]["win_rate"]) - 1
+        stats["total"]["koefs"]["expected_payoff_probability"] = float('{:.5f}'.format(stats["total"]["koefs"]["expected_payoff_probability"]))
+    else:
+        stats["total"]["koefs"]["expected_payoff_probability"] = 0
     return stats
 
 def calculate_breakeven(stats: dict, symbol_list: list, stats_mode: str) -> dict:
     if stats_mode == "full":
         for symbol in symbol_list:
-            if stats[symbol]["deals_stats"]["win_deal_pnl_avrg"]:
+            if stats[symbol]["deals_stats"]["loss_deal_pnl_avrg"] and stats[symbol]["deals_stats"]["win_deals_count"]:
                 stats[symbol]["koefs"]["breakeven"] = (stats[symbol]["deals_stats"]["win_deal_pnl_avrg"] / abs(stats[symbol]["deals_stats"]["loss_deal_pnl_avrg"])) \
                                                     - (stats[symbol]["deals_stats"]["loss_deals_count"] / stats[symbol]["deals_stats"]["win_deals_count"])
                 stats[symbol]["koefs"]["breakeven"] = float('{:.5f}'.format(stats[symbol]["koefs"]["breakeven"]))
             else:
                 stats[symbol]["koefs"]["breakeven"] = None
-    if stats["total"]["deals_stats"]["win_deals_count"] > 0:
+    if stats["total"]["deals_stats"]["win_deals_count"] > 0 and stats["total"]["deals_stats"]["loss_deal_pnl_avrg"]:
         stats["total"]["koefs"]["breakeven"] = (stats["total"]["deals_stats"]["win_deal_pnl_avrg"] / abs(stats["total"]["deals_stats"]["loss_deal_pnl_avrg"])) \
                                                 - (stats["total"]["deals_stats"]["loss_deals_count"] / stats["total"]["deals_stats"]["win_deals_count"])
         stats["total"]["koefs"]["breakeven"] = float('{:.5f}'.format(stats["total"]["koefs"]["breakeven"]))
@@ -150,15 +173,18 @@ def calculate_breakeven(stats: dict, symbol_list: list, stats_mode: str) -> dict
 def calculate_breakeven_with_tradeoff(stats: dict, symbol_list: list, tradeoff: float, stats_mode: str) -> dict:
     if stats_mode == "full":
         for symbol in symbol_list:
-            if stats[symbol]["deals_stats"]["win_deal_pnl_avrg"]:
+            if stats[symbol]["deals_stats"]["loss_deal_pnl_avrg"] and stats[symbol]["deals_stats"]["win_deals_count"]:
                 stats[symbol]["koefs"]["breakeven_tradeoff"] = (stats[symbol]["deals_stats"]["win_deal_pnl_avrg"] / abs(stats[symbol]["deals_stats"]["loss_deal_pnl_avrg"])) \
                                                             - (1 / (stats[symbol]["koefs"]["win_rate"] - tradeoff))
                 stats[symbol]["koefs"]["breakeven_tradeoff"] = float('{:.3f}'.format(stats[symbol]["koefs"]["breakeven_tradeoff"]))
             else:
                 stats[symbol]["koefs"]["breakeven_tradeoff"] = None
-    stats["total"]["koefs"]["breakeven_tradeoff"] = (stats["total"]["deals_stats"]["win_deal_pnl_avrg"] / abs(stats["total"]["deals_stats"]["loss_deal_pnl_avrg"])) \
-                                                    - (1 / (stats["total"]["koefs"]["win_rate"] - tradeoff))
-    stats["total"]["koefs"]["breakeven_tradeoff"] = float('{:.3f}'.format(stats["total"]["koefs"]["breakeven_tradeoff"]))
+    if stats["total"]["deals_stats"]["loss_deal_pnl_avrg"]:
+        stats["total"]["koefs"]["breakeven_tradeoff"] = (stats["total"]["deals_stats"]["win_deal_pnl_avrg"] / abs(stats["total"]["deals_stats"]["loss_deal_pnl_avrg"])) \
+                                                        - (1 / (stats["total"]["koefs"]["win_rate"] - tradeoff))
+        stats["total"]["koefs"]["breakeven_tradeoff"] = float('{:.3f}'.format(stats["total"]["koefs"]["breakeven_tradeoff"]))
+    else:
+        stats["total"]["koefs"]["breakeven_tradeoff"] = 0
     return stats
 
 def calculate_profit_factor(stats: dict, symbol_list: list, stats_mode: str) -> dict:
@@ -169,8 +195,11 @@ def calculate_profit_factor(stats: dict, symbol_list: list, stats_mode: str) -> 
                 stats[symbol]["koefs"]["profit_factor"] = float('{:.3f}'.format(stats[symbol]["koefs"]["profit_factor"]))
             else:
                 stats[symbol]["koefs"]["profit_factor"] = None
-    stats["total"]["koefs"]["profit_factor"] = stats["total"]["deals_stats"]["win_deals_pnl"] / abs(stats["total"]["deals_stats"]["loss_deals_pnl"])
-    stats["total"]["koefs"]["profit_factor"] = float('{:.3f}'.format(stats["total"]["koefs"]["profit_factor"]))
+    if stats["total"]["deals_stats"]["loss_deals_pnl"]:
+        stats["total"]["koefs"]["profit_factor"] = stats["total"]["deals_stats"]["win_deals_pnl"] / abs(stats["total"]["deals_stats"]["loss_deals_pnl"])
+        stats["total"]["koefs"]["profit_factor"] = float('{:.3f}'.format(stats["total"]["koefs"]["profit_factor"]))
+    else:
+        stats["total"]["koefs"]["profit_factor"] = 0
     return stats
 
 def get_holdings_stats(stats: dict, all_holdings: dict, symbol_list: list, last_bar_datetime: datetime.datetime, stats_mode: str) -> dict:
@@ -276,39 +305,68 @@ def calculate_drawdowns(stats: dict, all_holdings: dict):
 
     stats["total"]["koefs"]["DD_pct"] = max(drawdown_pct)
     stats["total"]["koefs"]["DD_pct_date"] = dates[drawdown_pct.index(max(drawdown_pct))]
-    stats["total"]["koefs"]["DD_pct_duration"] = duration_pct_end_date - duration_pct_start_date
+    if  duration_pct_end_date:
+        stats["total"]["koefs"]["DD_pct_duration"] = duration_pct_end_date - duration_pct_start_date
+    else:
+        stats["total"]["koefs"]["DD_pct_duration"] = 0
 
     stats["total"]["koefs"]["DD_pcr"] = max(drawdown_pcr)
     stats["total"]["koefs"]["DD_pcr"] = float('{:.5f}'.format(stats["total"]["koefs"]["DD_pcr"]))
     stats["total"]["koefs"]["DD_pcr_date"] = dates[drawdown_pcr.index(max(drawdown_pcr))]
-    stats["total"]["koefs"]["DD_pcr_duration"] = duration_pcr_end_date - duration_pcr_start_date
+    if duration_pcr_end_date:
+        stats["total"]["koefs"]["DD_pcr_duration"] = duration_pcr_end_date - duration_pcr_start_date
+    else:
+        stats["total"]["koefs"]["DD_pcr_duration"] = 0
     return stats
 
 def calculate_apr_to_dd_factor(stats: dict) -> dict:
-    stats["total"]["koefs"]["APR/DD_factor"] = stats["total"]["koefs"]["APR"] / stats["total"]["koefs"]["DD_pcr"] 
-    stats["total"]["koefs"]["APR/DD_factor"] = float('{:.3f}'.format(stats["total"]["koefs"]["APR/DD_factor"]))
+    if stats["total"]["koefs"]["DD_pcr"]:
+        stats["total"]["koefs"]["APR/DD_factor"] = stats["total"]["koefs"]["APR"] / stats["total"]["koefs"]["DD_pcr"] 
+        stats["total"]["koefs"]["APR/DD_factor"] = float('{:.3f}'.format(stats["total"]["koefs"]["APR/DD_factor"]))
+    else:
+        stats["total"]["koefs"]["APR/DD_factor"] = 0
     return stats
 
 def calculate_recovery_factor(stats: dict) -> dict:
-    stats["total"]["koefs"]["recovery_factor"] = stats["total"]["holdings_stats"]["pnl"] / stats["total"]["koefs"]["DD_pct"]
-    stats["total"]["koefs"]["recovery_factor"] = float('{:.3f}'.format(stats["total"]["koefs"]["recovery_factor"]))
+    if stats["total"]["koefs"]["DD_pct"]:
+        stats["total"]["koefs"]["recovery_factor"] = stats["total"]["holdings_stats"]["pnl"] / stats["total"]["koefs"]["DD_pct"]
+        stats["total"]["koefs"]["recovery_factor"] = float('{:.3f}'.format(stats["total"]["koefs"]["recovery_factor"]))
+    else:
+        stats["total"]["koefs"]["recovery_factor"] = 0
     return stats
 
 def calculate_sharp_ratio(stats: dict, all_holdings: dict) -> dict:
     capital = [i["total"]["capital"] for i in all_holdings ]
     returns = pd.Series(capital).pct_change().dropna()
+    std_returns = np.std(returns)
     periods = 252
 
-    stats["total"]["koefs"]["sharp_ratio"] = np.sqrt(periods) * (np.mean(returns)) / np.std(returns)
-    stats["total"]["koefs"]["sharp_ratio"] = float('{:.3f}'.format(stats["total"]["koefs"]["sharp_ratio"]))
+    if std_returns:
+        stats["total"]["koefs"]["sharp_ratio"] = np.sqrt(periods) * (np.mean(returns)) / std_returns
+        stats["total"]["koefs"]["sharp_ratio"] = float('{:.3f}'.format(stats["total"]["koefs"]["sharp_ratio"]))
+    else:
+        stats["total"]["koefs"]["sharp_ratio"] = 0
     return stats
 
 def calculate_sortino_ratio(stats: dict, all_holdings: dict) -> dict:
     capital = [i["total"]["capital"] for i in all_holdings ]
     returns = pd.Series(capital).pct_change().dropna()
     downside_returns = [i for i in returns if i <= 0]
+    std_returns = np.std(downside_returns)
 
     periods = 252
-    stats["total"]["koefs"]["sortino_ratio"] = np.sqrt(periods) * (np.mean(returns)) / np.std(downside_returns)
-    stats["total"]["koefs"]["sortino_ratio"] = float('{:.3f}'.format(stats["total"]["koefs"]["sortino_ratio"]))
+    if std_returns:
+        stats["total"]["koefs"]["sortino_ratio"] = np.sqrt(periods) * (np.mean(returns)) / std_returns
+        stats["total"]["koefs"]["sortino_ratio"] = float('{:.3f}'.format(stats["total"]["koefs"]["sortino_ratio"]))
+    else:
+        stats["total"]["koefs"]["sortino_ratio"] = 0
+    return stats
+
+def calculate_var(stats: dict, all_holdings: dict, period, quantile, forward) -> dict:
+    capital = [i["total"]["capital"] for i in all_holdings][-(period + 1):]
+    returns = pd.Series(capital).pct_change().dropna()
+    log_returns = np.log(1 + returns)
+    var = log_returns.quantile(quantile) * capital[-1]
+    stats["total"]["koefs"]["var"] = var * np.sqrt(forward)
+    stats["total"]["koefs"]["var"] = float('{:.3f}'.format(stats["total"]["koefs"]["var"]))
     return stats
