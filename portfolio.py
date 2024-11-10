@@ -3,13 +3,10 @@
 
 import pandas as pd
 from event import FillEvent, OrderEvent, SignalEvent, Event
-from performance import calculate_sharp_ratio, get_deal_stats, calculate_winRate, calculate_expected_payoff, calculate_breakeven
-from performance import calculate_breakeven_with_tradeoff, calculate_profit_factor, get_holdings_stats, calculate_return, calculate_drawdowns
-from performance import calculate_recovery_factor, calculate_sortino_ratio, calculate_apr_to_dd_factor, calculate_var
+from performance import *
 from data import HistoricCSVDataHandler
 from posSizers import mpr
 from handler import instruments_info, convert_str_toDateTime
-import datetime as dt
 import numpy as np
 import math
 from commission_plans import forts_commission
@@ -20,16 +17,18 @@ class Portfolio(object):
     '''
     Handler of positions and holdings of backtest. Makes stats.
     '''
-
-    def __init__(self, bars: HistoricCSVDataHandler, events: Event, initial_capital, pos_sizer_params_list, margin_params_list, stratagy: Stratagy, stats_mode: str) -> None:
+     
+    def __init__(self, bars: HistoricCSVDataHandler, events: Event, initial_capital, params_list, stratagy: Stratagy, stats_mode: str) -> None:
         self.__bars = bars
         self.__events = events
         self.__symbol_list = self.__bars.get_symbol_list
         self.__initial_capital = initial_capital
-        self.__pos_sizer_params_list = pos_sizer_params_list
-        self.__margin_params_list = margin_params_list
+        self.__pos_sizer_params_list = params_list["pos_sizers"]
+        self.__margin_params_list = params_list["margin_params"]
         self.__stratagy = stratagy
         self.__stats_mode = stats_mode
+        self.__margin_params_list
+        self.__params_list = params_list
 
         self.__all_positions = self.construct_all_positions()
         self.__current_positions = self.construct_current_positions()
@@ -37,6 +36,10 @@ class Portfolio(object):
         self.__all_holdings = self.construct_all_holdings()
         self.__current_holdings = self.construct_current_holdings()
         self.__equity_curve = None
+    
+    @property
+    def get_params_list(self) -> dict:
+        return self.__params_list
     
     @property
     def get_stratagy(self) -> Stratagy:
@@ -472,7 +475,6 @@ class Portfolio(object):
                 mkt_quantity = 1
             if marginCall_control(self.get_current_holdings, mkt_quantity, self.get_margin_params_list, signal):
                 order = OrderEvent(symbol, order_type, mkt_quantity, "BUY", signal.get_signal_params, timeindx)
-        
         if signal_name == "SHORT" and cur_quantity == 0 and cash > 0:
             if pos_sizer_type == "mpr":
                 entry_price = self.get_bars.get_latest_bar_value(symbol, "low")
@@ -490,6 +492,8 @@ class Portfolio(object):
         if signal_name == "EXIT" and cur_quantity < 0:
             order = OrderEvent(symbol, order_type, abs(cur_quantity), "BUY", signal.get_signal_params, timeindx)
         return order
+    
+    
 
     #TODO def market_order
     #TODO def limit_order
@@ -501,18 +505,22 @@ class Portfolio(object):
             self.__events.put(order_event)
     
     def output_summary_stats(self, last_bar_datetime) -> list:
-        deals_stats = get_deal_stats(self.get_all_positions, self.get_symbol_list, self.get_initial_capital, self.get_stats_mode)
-        deals_stats = calculate_winRate(deals_stats, self.get_symbol_list, self.get_stats_mode)
-        deals_stats = calculate_expected_payoff(deals_stats, self.get_symbol_list, self.get_stats_mode)
-        deals_stats = calculate_breakeven(deals_stats, self.get_symbol_list, self.get_stats_mode)
-        deals_stats = calculate_breakeven_with_tradeoff(deals_stats, self.get_symbol_list, 0.1, self.get_stats_mode)
-        deals_stats = calculate_profit_factor(deals_stats, self.get_symbol_list, self.get_stats_mode)
-        holdings_stats = get_holdings_stats(deals_stats, self.get_all_holdings, self.get_symbol_list, last_bar_datetime, self.get_stats_mode)
-        holdings_stats = calculate_return(holdings_stats)
-        holdings_stats = calculate_drawdowns(holdings_stats, self.get_all_holdings)
-        holdings_stats = calculate_apr_to_dd_factor(holdings_stats)
-        holdings_stats = calculate_recovery_factor(holdings_stats)
-        holdings_stats = calculate_sharp_ratio(holdings_stats, self.get_all_holdings)
-        holdings_stats = calculate_sortino_ratio(holdings_stats, self.get_all_holdings)
-        holdings_stats = calculate_var(holdings_stats, self.get_all_holdings, 6500, 0.01, 10)
-        return holdings_stats
+        stats = get_deal_stats(self.get_all_positions, self.get_params_list)
+        stats = calculate_winRate(stats, self.get_symbol_list, self.get_stats_mode)
+        stats = calculate_expected_payoff(stats, self.get_symbol_list, self.get_stats_mode)
+        stats = calculate_breakeven(stats, self.get_symbol_list, self.get_stats_mode)
+        stats = calculate_breakeven_with_tradeoff(stats, self.get_symbol_list, 0.1, self.get_stats_mode)
+        stats = calculate_profit_factor(stats, self.get_symbol_list, self.get_stats_mode)
+        stats = get_holdings_stats(stats, self.get_all_holdings, self.get_symbol_list, last_bar_datetime, self.get_stats_mode)
+        stats = calculate_return(stats)
+
+        curve = get_equity_curve(self.get_all_holdings)
+        stats, curve = calculate_drawdowns(stats, curve)
+
+        stats = calculate_apr_to_dd_factor(stats)
+        stats = calculate_recovery_factor(stats)
+        stats = calculate_sharp_ratio(stats, curve)
+        stats = calculate_sortino_ratio(stats, curve)
+        stats = calculate_var(stats, curve, 6500, 0.01, 5)
+        return stats, curve
+    

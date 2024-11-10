@@ -10,7 +10,7 @@ from itertools import product
 from abc import ABCMeta, abstractmethod
 import random, yaml, time
 import numpy as np
-import matplotlib.pyplot as plt
+from plot_performance import *
 
 class Optimizer(object):
     __metaclass__ = ABCMeta
@@ -41,10 +41,12 @@ class Optimizer(object):
             SimulatedExecutionHandler,
             Portfolio
         )
-        if params_list[1]["args"].mode == "optimize":
-            return backtest.simulate_trading_opt()
-        elif params_list[1]["args"].mode == "visual":
-            return backtest.simulate_trading_visual()
+        if params_list[1]["args"]["args"].mode == "visual":
+            backtest.simulate_portfolio_trading_visual()
+            return
+        elif params_list[1]["args"]["args"].mode == "optimize":
+            result = backtest.simulate_portfolio_trading_optimize()
+        return result
 
 class Grid_Search(Optimizer):
     '''
@@ -62,29 +64,32 @@ class Grid_Search(Optimizer):
         super().__call__(opt_params)
         params_list = params_creator()
         with ProcessPoolExecutor(max_workers= workers) as executor:
-            results = (executor.map(self.get_fitness, params_list))
+           results = (executor.map(self.get_fitness, params_list))
         return results
 
     def optimization_params_handler(self) -> list:
-        indicators_params = [self.get_opt_params["strat_params"][key] for key in self.get_opt_params["strat_params"]]
-        pos_sizer_params = [self.get_opt_params["pos_sizer"][key] for key in self.get_opt_params["pos_sizer"]]
-        product_ = list(product(*indicators_params, *pos_sizer_params))
         params_list = []
-        i = 1
-        
-        for item in product_:
-            params_dict = {}
-            params_dict["indicators"] = {key: item[indx] for indx, key in enumerate(self.get_opt_params["strat_params"])}
-            params_dict["pos_sizers"] = {key: item[indx + len(self.get_opt_params["strat_params"])] for indx, key in enumerate(self.get_opt_params["pos_sizer"])}
-            params_dict["data_iter"] = self.get_opt_params["data_iter"]
-            params_dict["args"] = self.get_opt_params["args"]
-            params_dict["item_number"] = i
-            params_dict["length"] = len(product_)
-            params_dict["stratagy"] = self.get_opt_params["stratagy"]
-            params_dict["initial_capital"] = self.get_opt_params["initial_capital"]
-            params_dict["margin_params"] = self.get_opt_params["margin_params"]
-            i += 1
-            params_list.append(params_dict)
+        for stratagy in self.get_opt_params:
+            i = 1
+            indicators_params = [stratagy.get_stratagy_params["strat_params"][key] for key in stratagy.get_stratagy_params["strat_params"]]
+            pos_sizer_params = [stratagy.get_stratagy_params["pos_sizer"][key] for key in stratagy.get_stratagy_params["pos_sizer"]]
+            product_ = list(product(*indicators_params, *pos_sizer_params))
+            for item in product_:
+                params_dict = {}
+                params_dict["indicators"] = {key: item[indx] for indx, key in enumerate(stratagy.get_stratagy_params["strat_params"])}
+                params_dict["pos_sizers"] = {key: item[indx + len(stratagy.get_stratagy_params["strat_params"])] for indx, key in enumerate(stratagy.get_stratagy_params["pos_sizer"])}
+                params_dict["data_iter"] = stratagy.get_stratagy_params["data_iter"]
+                params_dict["args"] = stratagy.get_stratagy_params["args"]
+                params_dict["stratagy"] = stratagy.get_stratagy_params["stratagy"]
+                params_dict["stratagy_name"] = stratagy.get_stratagy_params["stratagy_name"]
+                params_dict["stratagy_weight"] = stratagy.get_stratagy_params["stratagy_weight"]
+                params_dict["initial_capital"] = stratagy.get_stratagy_params["initial_capital"]
+                params_dict["margin_params"] = stratagy.get_stratagy_params["margin_params"]
+                params_dict["stratagy_pntr"] = stratagy.get_stratagy_params["stratagy_pntr"]
+                params_dict["item_number"] = i
+                params_dict["length"] = len(product_)
+                i += 1
+                params_list.append(params_dict)
         return params_list
     
 class Genetic_Search(Optimizer):
@@ -94,9 +99,7 @@ class Genetic_Search(Optimizer):
     
     def __init__(self) -> None:
         super().__init__()
-        self.__nmbr_of_generation = 0
-        self.__nmbr_of_individ = 1
-
+        
     @property
     def get_plot_data(self):
         return self.__plot_data
@@ -141,62 +144,73 @@ class Genetic_Search(Optimizer):
     def set_hromosome_bank(self, hromosome: dict) -> None:
         self.__hromosome_bank.append(hromosome)
 
-    def __call__(self, opt_params, ga_params, workers, plot= False) -> None:
+    def __call__(self, opt_params, workers, plot= False) -> None:
         super().__call__(opt_params)
-        self.__ga_params = ga_params
-        self.set_data_storage = self.get_opt_params["data_iter"]
-        self.__populations = self.construct_populations()
-        self.__ga_stats = self.constrauct_ga_stats()
-        self.__tournamet_winners = self.construct_populations()
-        self.__hromosome_bank = []
-        self.__plot_data = {
-            "number_of_generation": [],
-            "best_individ": [],
-            "mean": [],
-            "best_hromosome_ID": []
-        }
+        self.__ga_params = None
+        self.__current_stratagy = None
+        self.__plot_data = {}
 
-        population_optimizer = Grid_Search()
-        start_time = time.time()
-        print(f'Generation # {self.get_nmbr_of_generation}')
-        results = population_optimizer(opt_params, self.create_initial_population, workers= workers)
-        for result in results:
-            self._parse_results(result)
-        self.calculate_generation_stats()
-        self._tournament_selection()
-        end_time = time.time()
-        print(f"Elapsed_time for Generation# {self.get_nmbr_of_generation} = {end_time - start_time}")
-        
-        while self.get_nmbr_of_generation < self.get_ga_params["max_generations"]:
+        for stratagy in self.get_opt_params:
+            self.__nmbr_of_generation = 0
+            self.__nmbr_of_individ = 1
+            self.__current_stratagy = stratagy
+            self.__ga_params = stratagy.get_stratagy_params["ga_params"]
+            self.set_data_storage = stratagy.get_stratagy_params["data_iter"]
+            self.__populations = self.construct_populations(stratagy)
+            self.__ga_stats = self.constrauct_ga_stats()
+            self.__tournamet_winners = self.construct_populations(stratagy)
+            self.__hromosome_bank = []
+            self.__plot_data[stratagy] = {
+                "number_of_generation": [],
+                "best_individ": [],
+                "mean": [],
+                "best_hromosome_ID": []
+            }
+
+            population_optimizer = Grid_Search()
             start_time = time.time()
-            self.set_nmbr_of_generation += 1
-            print(f'Generation # {self.get_nmbr_of_generation}')
-
-            results = population_optimizer(opt_params, self._crossover_mutation, workers= workers)
+            print(f'Stratagy= {type(self.__current_stratagy).__name__}, Generation # {self.get_nmbr_of_generation}')
+            results = population_optimizer(stratagy.get_stratagy_params, self.create_initial_population, workers= workers)
             for result in results:
                 self._parse_results(result)
-            self.calculate_generation_stats()
+            self.calculate_generation_stats(self.__current_stratagy)
             self._tournament_selection()
             end_time = time.time()
-            print(f"Elapsed_time for Generation# {self.get_nmbr_of_generation} = {end_time - start_time}")
+            print(f"Elapsed_time for Stratagy= {type(self.__current_stratagy).__name__}, Generation# {self.get_nmbr_of_generation} = {end_time - start_time}")
         
-        if plot == True:
-            self._plot_results()
+            while self.get_nmbr_of_generation < self.get_ga_params["max_generations"]:
+                start_time = time.time()
+                self.set_nmbr_of_generation += 1
+                print(f'Stratagy= {type(self.__current_stratagy).__name__}, Generation # {self.get_nmbr_of_generation}')
 
-    def construct_populations(self) -> dict:
+                results = population_optimizer(stratagy.get_stratagy_params, self._crossover_mutation, workers= workers)
+                for result in results:
+                    self._parse_results(result)
+                self.calculate_generation_stats(self.__current_stratagy)
+                self._tournament_selection()
+                end_time = time.time()
+                print(f"Elapsed_time for Stratagy= {type(self.__current_stratagy).__name__}, Generation# {self.get_nmbr_of_generation} = {end_time - start_time}")
+            
+        if plot == True:
+            plot_portfolio_genetic_results(self.__plot_data)
+
+    def construct_populations(self, stratagy) -> dict:
         g = dict((key, value) for key, value in [(generation, {}) for generation in range(self.get_ga_params["max_generations"] + 1)])
         for gen in g:
             g[gen] = dict((key, value) for key, value in [(nmbr_of_individ, {}) for nmbr_of_individ in range(1, self.get_ga_params["population_size"] + 1)])
             for individ in range(1, self.get_ga_params["population_size"] + 1):
                 g[gen][individ]["indicators"] = None
                 g[gen][individ]["pos_sizers"] = None
-                g[gen][individ]["data_iter"] = self.get_opt_params["data_iter"]
-                g[gen][individ]["args"] = self.get_opt_params["args"]
+                g[gen][individ]["data_iter"] = stratagy.get_stratagy_params["data_iter"]
+                g[gen][individ]["args"] = stratagy.get_stratagy_params["args"]
                 g[gen][individ]["item_number"] = 0
                 g[gen][individ]["length"] = self.get_ga_params["population_size"]
-                g[gen][individ]["stratagy"] = self.get_opt_params["stratagy"]
-                g[gen][individ]["initial_capital"] = self.get_opt_params["initial_capital"]
-                g[gen][individ]["margin_params"] = self.get_opt_params["margin_params"]
+                g[gen][individ]["stratagy"] = stratagy.get_stratagy_params["stratagy"]
+                g[gen][individ]["stratagy_name"] = stratagy.get_stratagy_params["stratagy_name"]
+                g[gen][individ]["initial_capital"] = stratagy.get_stratagy_params["initial_capital"]
+                g[gen][individ]["stratagy_weight"] = stratagy.get_stratagy_params["stratagy_weight"]
+                g[gen][individ]["margin_params"] = stratagy.get_stratagy_params["margin_params"]
+                g[gen][individ]["stratagy_pntr"] = stratagy.get_stratagy_params["stratagy_pntr"]
                 g[gen][individ]["ga_params"] = {}
                 g[gen][individ]["ga_params"]["nmbr_of_generation"] = gen
                 g[gen][individ]["ga_params"]["nmbr_of_individ"] = 0
@@ -217,11 +231,12 @@ class Genetic_Search(Optimizer):
         return d
     
     def create_initial_population(self) -> dict:
+        current_params = self.__current_stratagy.get_stratagy_params
         gen = self.get_nmbr_of_generation
         cnt = 1
         while cnt <= self.get_ga_params["population_size"]:
-            self.get_populations[gen][cnt]["indicators"] = {key: random.choice(self.get_opt_params["strat_params"][key]) for indx, key in enumerate(self.get_opt_params["strat_params"])}
-            self.get_populations[gen][cnt]["pos_sizers"] = {key: random.choice(self.get_opt_params["pos_sizer"][key]) for indx, key in enumerate(self.get_opt_params["pos_sizer"])}
+            self.get_populations[gen][cnt]["indicators"] = {key: random.choice(current_params["strat_params"][key]) for indx, key in enumerate(current_params["strat_params"])}
+            self.get_populations[gen][cnt]["pos_sizers"] = {key: random.choice(current_params["pos_sizer"][key]) for indx, key in enumerate(current_params["pos_sizer"])}
             self.get_populations[gen][cnt]["item_number"] = cnt
             self.get_populations[gen][cnt]["ga_params"]["nmbr_of_individ"] = self.get_number_of_individ
             self.get_populations[gen][cnt]["ga_params"]["hromosome_ID"] = self._create_hromosome_ID(self.get_populations[gen][cnt]["indicators"], self.get_populations[gen][cnt]["pos_sizers"])
@@ -255,7 +270,7 @@ class Genetic_Search(Optimizer):
             print(f"Wrong parameter of fitness_value: {self.get_ga_params['fitness_value']}")
             exit(0)
 
-    def calculate_generation_stats(self):
+    def calculate_generation_stats(self, current_stratagy):
         gen = self.get_nmbr_of_generation
         self.get_ga_stats[gen]["number_of_generation"] = gen
         values = [self.get_populations[gen][item]["ga_params"]["fitness_value"] for item in range(1, self.get_ga_params["population_size"] + 1)]
@@ -284,12 +299,12 @@ class Genetic_Search(Optimizer):
             self.get_populations[gen][item]["ga_params"]["fitness_value"] == 
             self.get_ga_stats[gen]["worst_individ"]][0]
 
-        print(f'Result of population: Number of generation= {gen}, best= {self.get_ga_stats[gen]["best_individ"]}, mean= {self.get_ga_stats[gen]["mean"]}, worst= {self.get_ga_stats[gen]["worst_individ"]}, best individ ID= {self.get_ga_stats[gen]["best_hromosome_ID"]}')
+        print(f'Result of population: Stratagy= {type(self.__current_stratagy).__name__}, Number of generation= {gen}, best= {self.get_ga_stats[gen]["best_individ"]}, mean= {self.get_ga_stats[gen]["mean"]}, worst= {self.get_ga_stats[gen]["worst_individ"]}, best individ ID= {self.get_ga_stats[gen]["best_hromosome_ID"]}')
 
-        self.__plot_data["number_of_generation"].append(self.get_nmbr_of_generation)
-        self.__plot_data["best_individ"].append(self.get_ga_stats[gen]["best_individ"])
-        self.__plot_data["mean"].append(self.get_ga_stats[gen]["mean"])
-        self.__plot_data["best_hromosome_ID"].append(self.get_ga_stats[gen]["best_hromosome_ID"])
+        self.__plot_data[current_stratagy]["number_of_generation"].append(self.get_nmbr_of_generation)
+        self.__plot_data[current_stratagy]["best_individ"].append(self.get_ga_stats[gen]["best_individ"])
+        self.__plot_data[current_stratagy]["mean"].append(self.get_ga_stats[gen]["mean"])
+        self.__plot_data[current_stratagy]["best_hromosome_ID"].append(self.get_ga_stats[gen]["best_hromosome_ID"])
 
         for hromosome in self.get_hromosome_bank:
             for individ in self.get_populations[gen]:
@@ -335,6 +350,7 @@ class Genetic_Search(Optimizer):
             cnt += 1
 
     def _crossover_mutation(self) -> list:
+        current_params = self.__current_stratagy.get_stratagy_params
         gen = self.get_nmbr_of_generation
         # best_individ
         first_item_in_new_population = 1
@@ -351,8 +367,8 @@ class Genetic_Search(Optimizer):
         # crossover
         for child1, child2 in zip(list(self.get_tournament_winners[gen - 1].items())[::2], list(self.get_tournament_winners[gen - 1].items())[1::2]):
             if random.random() < self.get_ga_params["p_crossover"]:
-                self.get_populations[gen][cnt]["indicators"] = {key: random.choice([child1[1]["indicators"][key], child2[1]["indicators"][key]]) for indx, key in enumerate(self.get_opt_params["strat_params"])}
-                self.get_populations[gen][cnt]["pos_sizers"] = {key: random.choice([child1[1]["pos_sizers"][key], child2[1]["pos_sizers"][key]]) for indx, key in enumerate(self.get_opt_params["pos_sizer"])}
+                self.get_populations[gen][cnt]["indicators"] = {key: random.choice([child1[1]["indicators"][key], child2[1]["indicators"][key]]) for indx, key in enumerate(current_params["strat_params"])}
+                self.get_populations[gen][cnt]["pos_sizers"] = {key: random.choice([child1[1]["pos_sizers"][key], child2[1]["pos_sizers"][key]]) for indx, key in enumerate(current_params["pos_sizer"])}
                 self.get_populations[gen][cnt]["item_number"] = cnt
                 self.get_populations[gen][cnt]["ga_params"]["nmbr_of_individ"] = self.get_number_of_individ
                 self.get_populations[gen][cnt]["ga_params"]["hromosome_ID"] = self._create_hromosome_ID(self.get_populations[gen][cnt]["indicators"], self.get_populations[gen][cnt]["pos_sizers"])
@@ -366,8 +382,8 @@ class Genetic_Search(Optimizer):
         while cnt <= self.get_ga_params["population_size"]:
             # mutation
             if random.random() < self.get_ga_params["p_mutation"]:
-                self.get_populations[gen][cnt]["indicators"] = {key: random.choice(self.get_opt_params["strat_params"][key]) for indx, key in enumerate(self.get_opt_params["strat_params"])}
-                self.get_populations[gen][cnt]["pos_sizers"] = {key: random.choice(self.get_opt_params["pos_sizer"][key]) for indx, key in enumerate(self.get_opt_params["pos_sizer"])}
+                self.get_populations[gen][cnt]["indicators"] = {key: random.choice(current_params["strat_params"][key]) for indx, key in enumerate(current_params["strat_params"])}
+                self.get_populations[gen][cnt]["pos_sizers"] = {key: random.choice(current_params["pos_sizer"][key]) for indx, key in enumerate(current_params["pos_sizer"])}
                 self.get_populations[gen][cnt]["item_number"] = cnt
                 self.get_populations[gen][cnt]["ga_params"]["nmbr_of_individ"] = self.get_number_of_individ
                 self.get_populations[gen][cnt]["ga_params"]["hromosome_ID"] = self._create_hromosome_ID(self.get_populations[gen][cnt]["indicators"], self.get_populations[gen][cnt]["pos_sizers"])
@@ -389,15 +405,3 @@ class Genetic_Search(Optimizer):
             cnt += 1
         population = [self.get_populations[gen][cnt] for cnt in self.get_populations[gen] if self.get_populations[gen][cnt]["ga_params"]["fitness_value"] == None]
         return population
-        
-    def _plot_results(self) -> None:
-        x = self.__plot_data["number_of_generation"]
-        y1 = self.__plot_data["best_individ"]
-        y2 = self.__plot_data["mean"]
-        plt.plot(x, y1, y2)
-        plt.title("Genetic Algorythm")
-        plt.xlabel("number_of_generation")
-        plt.ylabel("best_individ")
-        plt.grid(True)
-        plt.text(x[1], y1[1] * 0.9, f'{self.__plot_data["best_hromosome_ID"][-1]}')
-        plt.show()

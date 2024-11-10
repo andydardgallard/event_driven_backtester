@@ -7,28 +7,6 @@ import os, datetime
 def args_parser():
     parser = argparse.ArgumentParser(description="Flags of Command-Line options")
     parser.add_argument(
-        "-f", "--folder",                                   # указывающий путь к папке с данными
-        default= '',                                        # Значение по умолчанию
-        required= True,                                     # Необязательный параметр
-        type= str,                                          # Тип строковый
-        help= "Path to folder with data"
-    )
-    parser.add_argument(
-        "-t", "--timeframe",
-        default= "min",
-        required= True,
-        type= str,
-        choices= ["min", "d", "w", "m", "y"],
-        help= "min - Minutes, d - Daily, w - Weekly, m - Month, y - Year"
-    )
-    parser.add_argument(                                    # Создаем аргумент
-        "-c", "--compression",                              # указывающий на сколько нужно зжать минутные свечи
-        default= 1,                                         # Значение по умолчанию
-        required= True,                                     # Необязательный параметр
-        type= int,                                          # Тип целочисленный
-        help= "Compress to required timeframe. All data has 1 minute time frame by default. Example: for 5 minutes timeframe use --compression 5."
-    )
-    parser.add_argument(
         "-sm", "--stats_mode",
         default= "min",
         required= True,
@@ -38,7 +16,7 @@ def args_parser():
     )
     parser.add_argument(
         "-m", "--mode",
-        default= "optimize",
+        default= "optimyze",
         required= True,
         type= str,
         choices= ["optimize", "visual"],
@@ -68,6 +46,38 @@ def resample_handler(*params) -> list:
     return out
 
 instruments_info = {
+    "Si-3.20.txt": {
+        "type": "futures",
+        "margin": 10_000.00,
+        "commission": 3.00,
+        "commission_type": "FORTS",
+        "expiration_date": "2020-03-19 10:00:00",
+        "marginal_costs": 0
+    },
+    "Si-6.20.txt": {
+        "type": "futures",
+        "margin": 10_000.00,
+        "commission": 3.00,
+        "commission_type": "FORTS",
+        "expiration_date": "2020-06-18 10:00:00",
+        "marginal_costs": 0
+    },
+    "Si-12.20.txt": {
+        "type": "futures",
+        "margin": 10_000.00,
+        "commission": 3.00,
+        "commission_type": "FORTS",
+        "expiration_date": 18062020,
+        "marginal_costs": 0
+    },
+    "Si-9.20.txt": {
+        "type": "futures",
+        "margin": 10_000.00,
+        "commission": 3.00,
+        "commission_type": "FORTS",
+        "expiration_date": 18062020,
+        "marginal_costs": 0
+    },
     "Si-9.21.txt": {
         "type": "futures",
         "margin": 4_417.03,
@@ -204,3 +214,103 @@ def convert_str_toDateTime(string_dateTime: str) -> datetime.datetime:
     format_ = "%Y-%m-%d %H:%M:%S"
     converted_dateTime = datetime.datetime.strptime(string_dateTime, format_)
     return converted_dateTime
+
+def stratagy_name_creator(stratagy_params: dict) -> list:
+    params_list = "_".join(str(v[0]) for v in stratagy_params["strat_params"].values())   
+    stratagy_name = f'{stratagy_params["stratagy"].__name__}_'    + \
+                    f'{stratagy_params["args"]["compression"]}'   + \
+                    f'{stratagy_params["args"]["timeframe"]}_'    + \
+                    f'{stratagy_params["symbol_base_name"]}_'     + \
+                    f'{params_list}_'                             + \
+                    f'{stratagy_params["pos_sizer"]["pos_sizer_type"][0]}'
+    return stratagy_name
+
+def CustomCSVDataHandlerPortfolio_params_creator(*stratagies) -> None:
+    params = {
+        stratagy.get_stratagy_params["stratagy_name"]: {
+            "folder": stratagy.get_stratagy_params["folder"],
+            "data_parser_params": stratagy.get_stratagy_params["data_parser_params"],
+            "timeframe": stratagy.get_stratagy_params["timeframe"],
+            "compression": stratagy.get_stratagy_params["compression"],
+            "symbol_list": stratagy.get_stratagy_params["symbol_list"]
+        }
+        for stratagy in stratagies
+    }
+    return params
+
+def create_stats_structe(stratagy_portfolio) -> dict:
+    stratagy_names = [stratagy.get_stratagy_params["stratagy_name"] for stratagy in stratagy_portfolio]
+    stats_mode = stratagy_portfolio[0].get_stratagy_params["args"]["args"].stats_mode
+    
+    symbol_list = [stratagy.get_stratagy_params["symbol_list"] for stratagy in stratagy_portfolio]
+    symbol_list = [symbol for list_ in symbol_list for symbol in list_]
+    symbol_list = list(set(symbol_list))
+    
+    stats = {}
+    stats["curve"] = {stratagy_name: {"capital": 0, "pnl": 0, "datetime": 0} for stratagy_name in stratagy_names}
+    stats["curve"]["portfolio"] = {"capital": 0, "pnl": 0, "datetime": 0}
+    
+    stats["portfolio"] = {stratagy_name: {} for stratagy_name in stratagy_names}
+    stats["portfolio"]["total"] = {"koefs": {}, "deals_stats": {}, "holdings_stats": {}}
+    stats["portfolio"]["total"]["deals_stats"]["deals_count"] = 0
+    stats["portfolio"]["total"]["deals_stats"]["deals_gross_pnl"] = 0
+    stats["portfolio"]["total"]["deals_stats"]["commission"] = 0
+    stats["portfolio"]["total"]["deals_stats"]["deals_pnl"] = 0
+
+    stats["portfolio"]["total"]["deals_stats"]["win_deals_count"] = 0
+    stats["portfolio"]["total"]["deals_stats"]["win_deals_gross_pnl"] = 0
+    stats["portfolio"]["total"]["deals_stats"]["win_commission"] = 0
+    stats["portfolio"]["total"]["deals_stats"]["win_deals_pnl"] = 0
+
+    stats["portfolio"]["total"]["deals_stats"]["loss_deals_count"] = 0
+    stats["portfolio"]["total"]["deals_stats"]["loss_deals_gross_pnl"] = 0
+    stats["portfolio"]["total"]["deals_stats"]["loss_commission"] = 0
+    stats["portfolio"]["total"]["deals_stats"]["loss_deals_pnl"] = 0
+
+    stats["portfolio"]["total"]["holdings_stats"]["gross_pnl"] = 0
+    stats["portfolio"]["total"]["holdings_stats"]["commission"] = 0
+    stats["portfolio"]["total"]["holdings_stats"]["pnl"] = 0
+    if stats_mode == "full":
+        stats["portfolio"]["total"]["holdings_stats"]["long_gross_pnl"] = 0
+        stats["portfolio"]["total"]["holdings_stats"]["long_commission"] = 0
+        stats["portfolio"]["total"]["holdings_stats"]["long_pnl"] = 0
+        stats["portfolio"]["total"]["holdings_stats"]["short_gross_pnl"] = 0
+        stats["portfolio"]["total"]["holdings_stats"]["short_commission"] = 0
+        stats["portfolio"]["total"]["holdings_stats"]["short_pnl"] = 0
+        stats["portfolio"]["total"]["holdings_stats"]["start_date"] = datetime.datetime.now()
+
+    for symbol in symbol_list:
+        stats["portfolio"][symbol] = {}
+        if stats_mode == "full":
+            stats["portfolio"][symbol]["koefs"] = {}
+        stats["portfolio"][symbol]["deals_stats"] = {}
+        stats["portfolio"][symbol]["deals_stats"]["deals_count"] = 0
+        stats["portfolio"][symbol]["deals_stats"]["deals_gross_pnl"] = 0
+        stats["portfolio"][symbol]["deals_stats"]["commission"] = 0
+        stats["portfolio"][symbol]["deals_stats"]["deals_pnl"] = 0
+
+        stats["portfolio"][symbol]["deals_stats"]["win_deals_count"] = 0
+        stats["portfolio"][symbol]["deals_stats"]["win_deals_gross_pnl"] = 0
+        stats["portfolio"][symbol]["deals_stats"]["win_commission"] = 0
+        stats["portfolio"][symbol]["deals_stats"]["win_deals_pnl"] = 0
+
+        stats["portfolio"][symbol]["deals_stats"]["loss_deals_count"] = 0
+        stats["portfolio"][symbol]["deals_stats"]["loss_deals_gross_pnl"] = 0
+        stats["portfolio"][symbol]["deals_stats"]["loss_commission"] = 0
+        stats["portfolio"][symbol]["deals_stats"]["loss_deals_pnl"] = 0
+
+        stats["portfolio"][symbol]["holdings_stats"] = {}
+        stats["portfolio"][symbol]["holdings_stats"]["gross_pnl"] = 0
+        stats["portfolio"][symbol]["holdings_stats"]["commission"] = 0
+        stats["portfolio"][symbol]["holdings_stats"]["pnl"] = 0
+
+        if stats_mode == "full":
+            stats["portfolio"][symbol]["holdings_stats"]["long_gross_pnl"] = 0
+            stats["portfolio"][symbol]["holdings_stats"]["long_commission"] = 0
+            stats["portfolio"][symbol]["holdings_stats"]["long_pnl"] = 0
+
+            stats["portfolio"][symbol]["holdings_stats"]["short_gross_pnl"] = 0
+            stats["portfolio"][symbol]["holdings_stats"]["short_commission"] = 0
+            stats["portfolio"][symbol]["holdings_stats"]["short_pnl"] = 0
+
+    return stats
